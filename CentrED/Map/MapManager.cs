@@ -272,7 +272,7 @@ public class MapManager
         list.Sort();
         AllTiles.Add(so.ObjectId, so);
         StaticTilesCount++;
-        if (so.IsAnimated)
+        if (so.IsAnimated && _animatedStaticsManager.HasFrames(so.StaticTile.Id))
         {
             AnimatedStaticTiles.Add(so);
         }
@@ -812,11 +812,13 @@ public class MapManager
         }
         if (Client.Running && AnimatedStatics)
         {
-            _animatedStaticsManager.Process(gameTime);
-            foreach (var animatedStaticTile in AnimatedStaticTiles)
+            if (_animatedStaticsManager.Process(gameTime))
             {
-              animatedStaticTile.UpdateId();
-              animatedStaticTile.Update();
+                foreach (var animatedStaticTile in AnimatedStaticTiles)
+                {
+                    animatedStaticTile.UpdateId();
+                    animatedStaticTile.Update();
+                }
             }
         }
         foreach (var landObject in _ToRecalculate)

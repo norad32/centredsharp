@@ -69,10 +69,11 @@ namespace CentrED
             }
         }
 
-        public void Process(GameTime gameTime)
+        public bool Process(GameTime gameTime)
         {
             uint currentTimeMs = (uint)gameTime.TotalGameTime.TotalMilliseconds;
             var artAssets = ArtLoader.Instance.Entries;
+            bool hasProcessed = false;
 
             foreach (var animation in _animations)
             {
@@ -85,7 +86,15 @@ namespace CentrED
                 animation.FrameIndex = (ushort)((animation.FrameIndex + 1) % animation.FrameCount);
 
                 animation.NextProcessTimeMs = currentTimeMs + animation.IntervalMs;
+                hasProcessed = true;
             }
+
+            return hasProcessed;
+        }
+
+        public bool HasFrames(ushort tileId)
+        {
+            return _animations.Exists(animation => animation.StaticIndex == tileId + StaticIndexOffset);
         }
 
         private unsafe AnimDataFrame* GetAnimDataFramePointer(long baseAddress, long lastValidAddress, int index)
