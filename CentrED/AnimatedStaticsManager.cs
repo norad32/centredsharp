@@ -1,128 +1,117 @@
 ﻿using ClassicUO.Assets;
-using ClassicUO.IO;
-using ClassicUO.Utility.Collections;
 using Microsoft.Xna.Framework;
 
-namespace CentrED;
-
-// This class is almost exact copy from ClassicUO
-// The only difference is that it works on GameTime passed to Process() and animated fields option is removed
-sealed class AnimatedStaticsManager
+namespace CentrED
 {
-    private readonly FastList<StaticAnimationInfo> _staticInfos = new();
-    private uint _processTime;
-    
-    public unsafe void Initialize()
+    public sealed class AnimatedStaticsManager
     {
-        UOFile file = AnimDataLoader.Instance.AnimDataFile;
+        private const uint StaticIndexOffset = 0x4000;
+        private const uint AnimationDelayMs = 50 * 2;
+        private List<AnimationData> _animations = new List<AnimationData>();
 
-        if (file == null)
+        private static readonly Lazy<AnimatedStaticsManager> _instance =
+            new Lazy<AnimatedStaticsManager>(() => new AnimatedStaticsManager());
+
+        public static AnimatedStaticsManager Instance => _instance.Value;
+        private AnimatedStaticsManager() { }
+
+        public void Initialize()
         {
-            return;
-        }
-
-        long startAddr = file.StartAddress.ToInt64();
-        uint lastaddr = (uint)(startAddr + file.Length - sizeof(AnimDataFrame));
-
-        for (int i = 0; i < TileDataLoader.Instance.StaticData.Length; i++)
-        {
-            if (TileDataLoader.Instance.StaticData[i].IsAnimated)
+            var animDataFile = AnimDataLoader.Instance.AnimDataFile;
+            var statics = TileDataLoader.Instance.StaticData;
+            if (animDataFile == null || statics == null)
             {
-                uint addr = (uint)(i * 68 + 4 * (i / 8 + 1));
-                uint offset = (uint)(startAddr + addr);
+                return;
+            }
 
-                if (offset <= lastaddr)
+            _animations.Clear();
+
+            unsafe
+            {
+                long baseAddress = animDataFile.StartAddress.ToInt64();
+                long lastValidAddress = baseAddress + animDataFile.Length - sizeof(AnimDataFrame);
+
+                for (int i = 0; i < statics.Length; i++)
                 {
-                    _staticInfos.Add
-                    (
-                        new StaticAnimationInfo
-                        {
-                            Index = (ushort)i,
-                            // IsField = IsField((ushort)i)
-                        }
-                    );
+                    if (!statics[i].IsAnimated)
+                    {
+                        continue;
+                    }
+
+                    var framePtr = GetAnimDataFramePointer(baseAddress, lastValidAddress, i);
+                    if (framePtr == null || framePtr->FrameCount <= 1)
+                    {
+                        continue;
+                    }
+
+                    uint intervalRaw = framePtr->FrameInterval;
+                    if (intervalRaw == 0)
+                    {
+                        intervalRaw = 1;
+                    }
+
+                    var frames = new sbyte[framePtr->FrameCount];
+                    var span = new ReadOnlySpan<sbyte>(framePtr->FrameData, framePtr->FrameCount);
+                    span.CopyTo(frames);
+
+                    uint intervalMs = intervalRaw * AnimationDelayMs;
+
+                    _animations.Add(new AnimationData
+                    {
+                        StaticIndex = (uint)i + StaticIndexOffset,
+                        IntervalMs = intervalMs,
+                        FrameCount = framePtr->FrameCount,
+                        NextProcessTimeMs = 0,
+                        FrameIndex = 0,
+                        FrameOffsets = frames,
+                    });
                 }
             }
         }
-    }
 
-    public unsafe void Process(GameTime gameTime)
-    {
-        var ticks = (uint)gameTime.TotalGameTime.TotalMilliseconds;
-        if (_staticInfos == null || _staticInfos.Length == 0 || _processTime >= ticks)
+        public void Process(GameTime gameTime)
         {
-            return;
-        }
+            uint currentTimeMs = (uint)gameTime.TotalGameTime.TotalMilliseconds;
+            var artAssets = ArtLoader.Instance.Entries;
 
-        UOFile file = AnimDataLoader.Instance.AnimDataFile;
-
-        if (file == null)
-        {
-            return;
-        }
-
-        // fix static animations time to reflect the standard client
-        uint delay = 50 * 2;
-        uint next_time = ticks + 250;
-        // bool no_animated_field = ProfileManager.CurrentProfile != null && ProfileManager.CurrentProfile.FieldsType != 0;
-        long startAddr = file.StartAddress.ToInt64();
-        UOFileIndex[] static_data = ArtLoader.Instance.Entries;
-
-        for (int i = 0; i < _staticInfos.Length; i++)
-        {
-            ref StaticAnimationInfo o = ref _staticInfos.Buffer[i];
-
-            // if (no_animated_field && o.IsField)
-            // {
-            //     o.AnimIndex = 0;
-            //
-            //     continue;
-            // }
-
-            if (o.Time < ticks)
+            foreach (var animation in _animations)
             {
-                uint addr = (uint)(o.Index * 68 + 4 * (o.Index / 8 + 1));
-                AnimDataFrame* info = (AnimDataFrame*)(startAddr + addr);
-
-                byte offset = o.AnimIndex;
-
-                if (info->FrameInterval > 0)
+                if (currentTimeMs < animation.NextProcessTimeMs)
                 {
-                    o.Time = ticks + info->FrameInterval * delay + 1;
-                }
-                else
-                {
-                    o.Time = ticks + delay;
+                    continue;
                 }
 
-                if (offset < info->FrameCount && o.Index + 0x4000 < static_data.Length)
-                {
-                    static_data[o.Index + 0x4000].AnimOffset = info->FrameData[offset++];
-                }
+                artAssets[animation.StaticIndex].AnimOffset = animation.FrameOffsets[animation.FrameIndex];
+                animation.FrameIndex = (ushort)((animation.FrameIndex + 1) % animation.FrameCount);
 
-                if (offset >= info->FrameCount)
-                {
-                    offset = 0;
-                }
-
-                o.AnimIndex = offset;
-            }
-
-            if (o.Time < next_time)
-            {
-                next_time = o.Time;
+                animation.NextProcessTimeMs = currentTimeMs + animation.IntervalMs;
             }
         }
 
-        _processTime = next_time;
-    }
+        private unsafe AnimDataFrame* GetAnimDataFramePointer(long baseAddress, long lastValidAddress, int index)
+        {
+            const int HeaderBlockSize = 4;
+            int recordSize = sizeof(AnimDataFrame);
+            long blockOffset = HeaderBlockSize * ((index / 8) + 1);
+            long offsetBytes = index * recordSize + blockOffset;
+            long absoluteAddress = baseAddress + offsetBytes;
 
+            if (absoluteAddress < baseAddress || absoluteAddress + recordSize > lastValidAddress)
+            {
+                return null;
+            }
 
-    private struct StaticAnimationInfo
-    {
-        public uint Time;
-        public ushort Index;
-        public byte AnimIndex;
-        // public bool IsField;
+            return (AnimDataFrame*)absoluteAddress;
+        }
+
+        private class AnimationData
+        {
+            public uint StaticIndex;
+            public uint IntervalMs;
+            public uint NextProcessTimeMs;
+            public ushort FrameCount;
+            public ushort FrameIndex;
+            public required sbyte[] FrameOffsets;
+        }
     }
 }

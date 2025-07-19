@@ -390,7 +390,7 @@ public class MapManager
             ).Wait(TimeSpan.FromSeconds(10.0)))
             Log.Panic("Loading files timeout.");
 
-        _animatedStaticsManager = new AnimatedStaticsManager();
+        _animatedStaticsManager = AnimatedStaticsManager.Instance;
         _animatedStaticsManager.Initialize();
         Arts = new Art(_gfxDevice);
         Texmaps = new Texmap(_gfxDevice);
