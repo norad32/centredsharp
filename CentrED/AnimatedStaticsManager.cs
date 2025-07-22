@@ -92,16 +92,29 @@ namespace CentrED
             return hasProcessed;
         }
 
-        public bool HasFrames(ushort tileId)
+        public bool HasFrames(int tileId)
         {
             return _animations.Exists(animation => animation.StaticIndex == tileId + StaticIndexOffset);
         }
 
+        public sbyte[] GetFrameOffsets(int tileId)
+        {
+            foreach (var animation in _animations)
+            {
+                if (animation.StaticIndex == tileId + StaticIndexOffset )
+                {
+                    return animation.FrameOffsets;
+                }
+            }
+
+            return Array.Empty<sbyte>();
+        }
+
         private unsafe AnimDataFrame* GetAnimDataFramePointer(long baseAddress, long lastValidAddress, int index)
         {
-            const int HeaderBlockSize = 4;
+            const int headerBlockSize = 4;
             int recordSize = sizeof(AnimDataFrame);
-            long blockOffset = HeaderBlockSize * ((index / 8) + 1);
+            long blockOffset = headerBlockSize * ((index / 8) + 1);
             long offsetBytes = index * recordSize + blockOffset;
             long absoluteAddress = baseAddress + offsetBytes;
 
