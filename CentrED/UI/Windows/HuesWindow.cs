@@ -154,8 +154,9 @@ public class HuesWindow : Window
     private bool _hueSetShowPopupNew;
     private bool _hueSetShowPopupDelete;
     private int _hueSetIndex;
-    private string _hueSetName = "";
-    private string _hueSetNewName = "";
+    private string _hueSetName = string.Empty;
+    private string _hueSetNewName = string.Empty;
+    private string _hueSetErrorMessage = string.Empty;
     private static readonly ushort[] Empty = Array.Empty<ushort>();
     private ushort[] ActiveHueSetValues = Empty;
     private int _hueSetSelectedId;
@@ -180,7 +181,7 @@ public class HuesWindow : Window
             ImGui.EndDisabled();
             var hueSets = ProfileManager.ActiveProfile.HueSets;
             //Probably slow, optimize
-            var names = new[] { String.Empty }.Concat(hueSets.Keys).ToArray();
+            var names = new[] { string.Empty }.Concat(hueSets.Keys).ToArray();
             if (ImGui.Combo("##HueSetCombo", ref _hueSetIndex, names, names.Length))
             {
                 _hueSetName = names[_hueSetIndex];
@@ -200,13 +201,17 @@ public class HuesWindow : Window
                     var clipper = ImGui.ImGuiListClipper();
                     ImGui.TableSetupColumn("Id", ImGuiTableColumnFlags.WidthFixed, ImGui.CalcTextSize("0x0000").X);
                     var selectableSize = new Vector2(ImGui.GetContentRegionAvail().X, _hueRowHeight);
-                    var ids = ActiveHueSetValues; //We copy the array here to not crash when removing, please fix :)
-                    clipper.Begin(ids.Length, _totalHuesRowHeight);
+                    clipper.Begin(ActiveHueSetValues.Length, _totalHuesRowHeight);
                     while (clipper.Step())
                     {
                         for (int rowIndex = clipper.DisplayStart; rowIndex < clipper.DisplayEnd; rowIndex++)
                         {
-                            var hueIndex = ids[rowIndex];
+                            if (rowIndex >= ActiveHueSetValues.Length)
+                            {
+                                continue;
+                            }
+
+                            var hueIndex = ActiveHueSetValues[rowIndex];
                             var posY = ImGui.GetCursorPosY();
                             DrawHueRow(hueIndex);
                             ImGui.SetCursorPosY(posY);
@@ -263,19 +268,39 @@ public class HuesWindow : Window
                 ImGui.InputText("##NewHueSetName", ref _hueSetNewName, 32);
                 if (ImGui.Button("Add"))
                 {
-                    hueSets.Add(_hueSetNewName, new SortedSet<ushort>());
-                    _hueSetIndex = Array.IndexOf(hueSets.Keys.ToArray(), _hueSetNewName) + 1;
-                    _hueSetName = _hueSetNewName;
-                    ActiveHueSetValues = Empty;
-                    ProfileManager.Save();
-                    _hueSetNewName = "";
-                    ImGui.CloseCurrentPopup();
+                    if (string.IsNullOrWhiteSpace(_hueSetNewName))
+                    {
+                        _hueSetErrorMessage = "Name cannot be empty.";
+                    }
+                    else if (hueSets.ContainsKey(_hueSetNewName))
+                    {
+                        _hueSetErrorMessage = string.Format("A set named '{0}' already exists.", _hueSetNewName);
+                    }
+                    else
+                    {
+                        hueSets.Add(_hueSetNewName, new SortedSet<ushort>());
+                        _hueSetIndex = Array.IndexOf(hueSets.Keys.ToArray(), _hueSetNewName) + 1;
+                        _hueSetName = _hueSetNewName;
+                        ActiveHueSetValues = Empty;
+                        ProfileManager.Save();
+                        _hueSetNewName = string.Empty;
+                        _hueSetErrorMessage = string.Empty;
+                        ImGui.CloseCurrentPopup();
+                    }
                 }
                 ImGui.SameLine();
                 if (ImGui.Button("Cancel"))
                 {
+                    _hueSetNewName = string.Empty;
+                    _hueSetErrorMessage = string.Empty;
                     ImGui.CloseCurrentPopup();
                 }
+
+                if (_hueSetErrorMessage != string.Empty)
+                {
+                    ImGui.Text(_hueSetErrorMessage);
+                }
+                
                 ImGui.EndPopup();
             }
             if (ImGui.BeginPopupModal
@@ -291,6 +316,15 @@ public class HuesWindow : Window
                     hueSets.Remove(_hueSetName);
                     ProfileManager.Save();
                     _hueSetIndex--;
+                    _hueSetName = names[_hueSetIndex];
+                    if (_hueSetIndex == 0)
+                    {
+                        ActiveHueSetValues = Empty;
+                    }
+                    else
+                    {
+                        ActiveHueSetValues = hueSets[_hueSetName].ToArray();
+                    }
                     ImGui.CloseCurrentPopup();
                 }
                 ImGui.SameLine();
@@ -334,17 +368,17 @@ public class HuesWindow : Window
     
     private void AddToHueSet(ushort id)
     {
-        var tileSet = ProfileManager.ActiveProfile.HueSets[_hueSetName];
-        tileSet.Add(id);
-        ActiveHueSetValues = tileSet.ToArray();
+        var hueSet = ProfileManager.ActiveProfile.HueSets[_hueSetName];
+        hueSet.Add(id);
+        ActiveHueSetValues = hueSet.ToArray();
         ProfileManager.Save();
     }
 
     private void RemoveFromHueSet(ushort id)
     {
-        var tileSet = ProfileManager.ActiveProfile.HueSets[_hueSetName];
-        tileSet.Remove(id);
-        ActiveHueSetValues = tileSet.ToArray();
+        var hueSet = ProfileManager.ActiveProfile.HueSets[_hueSetName];
+        hueSet.Remove(id);
+        ActiveHueSetValues = hueSet.ToArray();
         ProfileManager.Save();
     }
 
