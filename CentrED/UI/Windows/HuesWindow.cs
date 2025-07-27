@@ -127,7 +127,7 @@ public class HuesWindow : Window
                                 CEDGame.UIManager.DrawImage
                                 (
                                     HuesManager.Instance.Texture,
-                                    new Rectangle(0, hueIndex - 1, 32, 1),
+                                    new Rectangle((hueIndex - 1) % 16 * 32, (hueIndex - 1) / 16, 32, 1),
                                     new Vector2(60, _hueRowHeight),
                                     true
                                 );
